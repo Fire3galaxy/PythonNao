@@ -1,4 +1,5 @@
 from naoqi import ALProxy
+import vision_definitions
 import almath
 import socket
 import time
@@ -11,6 +12,10 @@ class PythonToNao:
     def __init__(self):
         self.tts = ALProxy("ALTextToSpeech", PythonToNao.IP, PythonToNao.PORT)
         self.motion = ALProxy("ALMotion", PythonToNao.IP, PythonToNao.PORT)
+        self.camera = ALProxy("ALVideoDevice", PythonToNao.IP, PythonToNao.PORT)
+        self.camera.unsubscribe("MyModule")
+        self.handle = self.camera.subscribeCamera("MyModule", 2, 
+            vision_definitions.kVGA, vision_definitions.kRGBColorSpace, 30)
 
     def getMotionProxy(self):
         return self.motion
@@ -18,6 +23,11 @@ class PythonToNao:
     def getTextToSpeechProxy(self):
         return self.tts
 
+    def getVideoDeviceProxy(self):
+        return self.camera
+    
+    def close(self):
+        self.camera.unsubscribe(self.handle)
 
 # Python to Unity socket
 class PythonToUnity:
@@ -39,6 +49,10 @@ class PythonToUnity:
     
     def recv(self, buffersize):
         return self.conn.recv(buffersize) if hasattr(self, 'conn') else None
+
+    def send(self, message):
+        if hasattr(self, 'conn'):
+            self.conn.send(message) 
     
     def close(self):
         if hasattr(self, '_conn'):
@@ -72,6 +86,19 @@ def processCommands(commands, naoConnection):
                         naoConnection.getTextToSpeechProxy().say(command[1])
     return False
 
+def sendUpdates(unityConnection, naoConnection):
+    # Send left arm position
+    LArmPos = convertNaoPosToStr(naoConnection.getMotionProxy().getPosition("LArm", 0, False))
+    unityConnection.send("LARM|" + LArmPos)
+
+# Takes position from ALMotionProxy.getPosition() and converts into list without spaces or square brackets
+# x,y,z,wx,wy,wz (in radians)
+def convertNaoPosToStr(LArmPos):
+    LArmString = str(LArmPos[0])
+    for i in range(1, len(LArmPos)):
+        LArmString += "," + str(LArmPos[i])
+    return LArmString
+
 # ----------------MAIN CODE--------------------
 
 # Communicate with Unity
@@ -88,22 +115,27 @@ time.sleep(1)
 
 # Main Loop
 while 1:
-    # Receive data from unity
-    newdata = unityConnection.recv(1024)
+    # # Receive data from unity
+    # newdata = unityConnection.recv(1024)
 
-    # null means connection was severed? According to python. Doesn't seem true for now.
-    if not newdata:
-        # break
-        continue
+    # # null means connection was severed? According to python. Doesn't seem true for now.
+    # if not newdata:
+    #     # break
+    #     continue
     
-    # Handle received disconnect command here
-    if processCommands(newdata, naoConnection):
-        print "Received Disconnect"
-        break
+    # # Receive commands from Unity
+    # if processCommands(newdata, naoConnection):
+    #     # Handle received disconnect command here
+    #     print "Received Disconnect"
+    #     break
+    
+    # Send commands to Unity
+    sendUpdates(unityConnection, naoConnection)
 
     # wait one second between calls to recv to not overflow NAO robot
-    time.sleep(1) 
+    time.sleep(.1)
 
 # Exit
 print "Closing connection"
 unityConnection.close()
+naoConnection.close()
