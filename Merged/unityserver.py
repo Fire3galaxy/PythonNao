@@ -12,8 +12,8 @@ class PythonToNao:
     def __init__(self):
         self.tts = ALProxy("ALTextToSpeech", PythonToNao.IP, PythonToNao.PORT)
         self.motion = ALProxy("ALMotion", PythonToNao.IP, PythonToNao.PORT)
+        self.motion.setStiffnesses(["LArm", "RArm", "Head"], [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]) # 6 for each arm, 2 for head
         self.camera = ALProxy("ALVideoDevice", PythonToNao.IP, PythonToNao.PORT)
-        self.camera.unsubscribe("MyModule")
         self.handle = self.camera.subscribeCamera("MyModule", 2, 
             vision_definitions.kVGA, vision_definitions.kRGBColorSpace, 30)
 
@@ -60,7 +60,11 @@ class PythonToUnity:
 
 # Returns true if DISCONNECT, false otherwise
 def processCommands(commands, naoConnection):
+    FRAME_TORSO = 0
+    POSITION_ONLY = 7
+
     # parse all commands from received string (newline separated)
+    print parsedCommands
     parsedCommands = commands.splitlines()
     for command in parsedCommands:
         if command == "DISCONNECT":
@@ -69,16 +73,22 @@ def processCommands(commands, naoConnection):
             command = command.split("|")
             if command[0] == "MOVE":
                 if len(command) == 3:
-                    position = command[2][1:-1].replace(" ", "")
-                    print command[0], command[1], "to", position
                     if naoConnection:
+                        shoulderPosition = naoConnection.getMotionProxy().getPosition(command[1], FRAME_TORSO, False)
+
+                        # Get position array
+                        position = command[2][1:-1].replace(" ", "")
+                        position = position.split(",")  # turn into float array
+                        position = position + [0.0, 0.0, 0.0]
+
+                        print "New arm position:", shoulderPosition, "+", position
+
                         naoConnection.getTextToSpeechProxy().say("MOVE")
 
-                    # FIXME: Finish this
-                    #FRAME_TORSO = 0
-                    #POSITION_ONLY = 7
-                    #position = None # convert command[2] to float array?
-                    #naoConnection.getMotionProxy().setPosition(command[1], FRAME_TORSO, position, .2, POSITION_ONLY)
+                        print command[0], command[1], "to", position
+                        naoConnection.getMotionProxy().setPosition(command[1], FRAME_TORSO, position, .2, POSITION_ONLY)
+                        # pause between move commands
+                        time.sleep(.5)
             if command[0] == "SAY":
                 if len(command) == 2:
                     print command[0] + ":", command[1]
@@ -115,25 +125,25 @@ time.sleep(1)
 
 # Main Loop
 while 1:
-    # # Receive data from unity
-    # newdata = unityConnection.recv(1024)
+    # Receive data from unity
+    newdata = unityConnection.recv(1024)
 
-    # # null means connection was severed? According to python. Doesn't seem true for now.
-    # if not newdata:
-    #     # break
-    #     continue
+    # null means connection was severed? According to python. Doesn't seem true for now.
+    if not newdata:
+        # break
+        continue
     
-    # # Receive commands from Unity
-    # if processCommands(newdata, naoConnection):
-    #     # Handle received disconnect command here
-    #     print "Received Disconnect"
-    #     break
+    # Receive commands from Unity
+    if processCommands(newdata, naoConnection):
+        # Handle received disconnect command here
+        print "Received Disconnect"
+        break
     
     # Send commands to Unity
-    sendUpdates(unityConnection, naoConnection)
+    # sendUpdates(unityConnection, naoConnection)
 
     # wait one second between calls to recv to not overflow NAO robot
-    time.sleep(.1)
+    time.sleep(1)
 
 # Exit
 print "Closing connection"
