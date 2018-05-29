@@ -44,18 +44,24 @@ class PythonToUnity:
         # Wait for client to connect to server
         print "Connecting to localhost:", self.PORT_NUM
         self.conn, self.addr = self.serversocket.accept()
+
         print "Connected to", self.addr
         print "To close the server, close the client (to send a DISCONNECT signal)."
+
+        self.serversocket.setblocking(0) # don't block on calls to recv
     
     def recv(self, buffersize):
-        return self.conn.recv(buffersize) if hasattr(self, 'conn') else None
+        try:
+            return self.conn.recv(buffersize) if hasattr(self, 'conn') else None
+        except socket.error:
+            return None
 
     def send(self, message):
         if hasattr(self, 'conn'):
             self.conn.send(message) 
     
     def close(self):
-        if hasattr(self, '_conn'):
+        if hasattr(self, 'conn'):
             self.conn.close() 
 
 # Returns true if DISCONNECT, false otherwise
@@ -64,7 +70,6 @@ def processCommands(commands, naoConnection):
     POSITION_ONLY = 7
 
     # parse all commands from received string (newline separated)
-    print parsedCommands
     parsedCommands = commands.splitlines()
     for command in parsedCommands:
         if command == "DISCONNECT":
@@ -98,8 +103,12 @@ def processCommands(commands, naoConnection):
 
 def sendUpdates(unityConnection, naoConnection):
     # Send left arm position
-    LArmPos = convertNaoPosToStr(naoConnection.getMotionProxy().getPosition("LArm", 0, False))
-    unityConnection.send("LARM|" + LArmPos)
+    # LArmPos = convertNaoPosToStr(naoConnection.getMotionProxy().getPosition("LArm", 0, False))
+    # unityConnection.send("LARM|" + LArmPos)
+
+    # Test if whole array can be sent in one packet
+    image = naoConnection.getVideoDeviceProxy().getImageRemote(naoConnection.handle)
+    unityConnection.send("IMG|" + image[6])
 
 # Takes position from ALMotionProxy.getPosition() and converts into list without spaces or square brackets
 # x,y,z,wx,wy,wz (in radians)
@@ -128,22 +137,23 @@ while 1:
     # Receive data from unity
     newdata = unityConnection.recv(1024)
 
-    # null means connection was severed? According to python. Doesn't seem true for now.
-    if not newdata:
+    # null means connection was severed (according to python, doesn't seem true for now)
+    # or that Unity didn't send anything (only sends about once per second)
+    if newdata:
         # break
-        continue
-    
-    # Receive commands from Unity
-    if processCommands(newdata, naoConnection):
-        # Handle received disconnect command here
-        print "Received Disconnect"
-        break
+        # continue
+
+        # Receive commands from Unity
+        if processCommands(newdata, naoConnection):
+            # Handle received disconnect command here
+            print "Received Disconnect"
+            break
     
     # Send commands to Unity
     # sendUpdates(unityConnection, naoConnection)
 
     # wait one second between calls to recv to not overflow NAO robot
-    time.sleep(1)
+    # time.sleep(1)
 
 # Exit
 print "Closing connection"
