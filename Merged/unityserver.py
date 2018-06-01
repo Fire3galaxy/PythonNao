@@ -12,7 +12,7 @@ class PythonToNao:
     def __init__(self):
         self.tts = ALProxy("ALTextToSpeech", PythonToNao.IP, PythonToNao.PORT)
         self.motion = ALProxy("ALMotion", PythonToNao.IP, PythonToNao.PORT)
-        self.motion.setStiffnesses(["LArm", "RArm", "Head"], [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]) # 6 for each arm, 2 for head
+        self.motion.setStiffnesses(["LArm", "RArm", "Head"], [0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0,   0, 0]) # 6 for each arm, 2 for head
         self.camera = ALProxy("ALVideoDevice", PythonToNao.IP, PythonToNao.PORT)
         self.handle = self.camera.subscribeCamera("MyModule", 2, 
             vision_definitions.kVGA, vision_definitions.kRGBColorSpace, 30)
@@ -27,6 +27,7 @@ class PythonToNao:
         return self.camera
     
     def close(self):
+        self.motion.setStiffnesses(["LArm", "RArm", "Head"], [0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0,   0, 0]) # 6 for each arm, 2 for head
         self.camera.unsubscribe(self.handle)
 
 # Python to Unity socket
@@ -79,21 +80,43 @@ def processCommands(commands, naoConnection):
             if command[0] == "MOVE":
                 if len(command) == 3:
                     if naoConnection:
-                        shoulderPosition = naoConnection.getMotionProxy().getPosition(command[1], FRAME_TORSO, False)
 
-                        # Get position array
-                        position = command[2][1:-1].replace(" ", "")
-                        position = position.split(",")  # turn into float array
-                        position = position + [0.0, 0.0, 0.0]
+                        # Moving arms: sent position vector is from user shoulder to user hand.
+                        if command[1].find("Arm") != -1:
+                            # Nao shoulder position
+                            shoulderPosition = []
+                            if command[1][0] == 'L':
+                                shoulderPosition = naoConnection.getMotionProxy().getPosition("LShoulderPitch", FRAME_TORSO, False)
+                            else:
+                                shoulderPosition = naoConnection.getMotionProxy().getPosition("RShoulderPitch", FRAME_TORSO, False)
 
-                        print "New arm position:", shoulderPosition, "+", position
+                            # Get position array
+                            handPosition = command[2][1:-1].replace(" ", "")
+                            handPosition = handPosition.split(",") 
 
-                        naoConnection.getTextToSpeechProxy().say("MOVE")
+                            # turn into float array and convert to NAO coordinates
+                            if command[1] == "LArm":
+                                print handPosition
+                            handPosition = [shoulderPosition[0] + float(handPosition[2]), 
+                                    shoulderPosition[1] + float(handPosition[0]), 
+                                    shoulderPosition[2] + float(handPosition[1])]
 
-                        print command[0], command[1], "to", position
-                        naoConnection.getMotionProxy().setPosition(command[1], FRAME_TORSO, position, .2, POSITION_ONLY)
-                        # pause between move commands
-                        time.sleep(.5)
+                            # Plus wx, wy, wz (rotation)
+                            handPosition = handPosition + [0.0, 0.0, 0.0]
+
+                            # Debug: Only left arm
+                            if command[1] == "LArm":
+                                currHandPosition = naoConnection.getMotionProxy().getPosition(command[1], FRAME_TORSO, False)
+                                print "Curr hand position:", currHandPosition
+                                print "Curr shoulder position:", shoulderPosition
+
+                                naoConnection.getTextToSpeechProxy().say("MOVE")
+                                print "New arm position:", handPosition, '\n'
+                                # print command[0], command[1], "to", position
+                                # naoConnection.getMotionProxy().setPosition(command[1], FRAME_TORSO, handPosition, .2, POSITION_ONLY)
+                            
+                                # pause after move command
+                                time.sleep(2)
             if command[0] == "SAY":
                 if len(command) == 2:
                     print command[0] + ":", command[1]
@@ -107,8 +130,11 @@ def sendUpdates(unityConnection, naoConnection):
     # unityConnection.send("LARM|" + LArmPos)
 
     # Test if whole array can be sent in one packet
-    image = naoConnection.getVideoDeviceProxy().getImageRemote(naoConnection.handle)
+    imageProxy = naoConnection.getVideoDeviceProxy()
+    image = imageProxy.getImageRemote(naoConnection.handle)
     unityConnection.send("IMG|" + image[6])
+    imageProxy.releaseImage(naoConnection.handle)
+    
 
 # Takes position from ALMotionProxy.getPosition() and converts into list without spaces or square brackets
 # x,y,z,wx,wy,wz (in radians)
