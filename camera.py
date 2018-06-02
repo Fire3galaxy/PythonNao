@@ -13,9 +13,9 @@ handle = camera.subscribeCamera("MyModule", 2,
 image = camera.getImageRemote(handle)
 
 print image[0], image[1], image[3], len(image[6])
-with open("nao_pic1.txt", "wb") as file:
-    for byte in image[6]:
-        file.write(str(ord(byte)) + " ")
+# with open("nao_pic1.txt", "wb") as file:
+#     for byte in image[6]:
+#         file.write(str(ord(byte)) + " ")
 
 camera.releaseImage(handle)
 

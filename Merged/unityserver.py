@@ -60,7 +60,7 @@ class PythonToUnity:
         print "Connected to", self.addr
         print "To close the server, close the client (to send a DISCONNECT signal)."
 
-        self.serversocket.setblocking(0) # don't block on calls to recv
+        self.conn.setblocking(0) # don't block on calls to recv
     
     def recv(self, buffersize):
         try:
@@ -91,28 +91,29 @@ def processCommands(commands, naoConnection):
             if command[0] == "MOVE":
                 if len(command) == 3:
                     if naoConnection:
-
                         # Moving arms: sent position vector is from user shoulder to user hand.
                         if command[1].find("Arm") != -1:
                             # Get position array
                             handPosition = command[2][1:-1].replace(" ", "")
                             handPosition = handPosition.split(",") 
 
+                            # turn into float array and convert Unity coordinates to NAO coordinates
+                            armInit = []
                             if command[1] == "LArm":
-                                print handPosition
+                                armInit = naoConnection.LArmInit
+                            else:
+                                armInit = naoConnection.RArmInit
 
-                            # turn into float array and convert to NAO coordinates
-                            handPosition = [naoConnection.LArmInit[0] + float(handPosition[2]) * PythonToNao.ARM_LENGTH,    # z = x
-                                    naoConnection.LArmInit[1] + -float(handPosition[0]) * PythonToNao.ARM_LENGTH,           #-x = y
-                                    naoConnection.LArmInit[2] + float(handPosition[1]) * PythonToNao.ARM_LENGTH]            # y = z
+                            handPosition = [armInit[0] + float(handPosition[2]) * PythonToNao.ARM_LENGTH,    # z = x
+                                    armInit[1] + -float(handPosition[0]) * PythonToNao.ARM_LENGTH,           #-x = y
+                                    armInit[2] + float(handPosition[1]) * PythonToNao.ARM_LENGTH]            # y = z
 
                             # Plus wx, wy, wz (rotation)
                             handPosition = handPosition + [0.0, 0.0, 0.0]
 
-                            # Debug: Only left arm
-                            if command[1] == "LArm":
-                                naoConnection.getTextToSpeechProxy().say("MOVE")
-                                naoConnection.getMotionProxy().setPosition(command[1], FRAME_TORSO, handPosition, .5, POSITION_ONLY)
+                            # Move arm
+                            naoConnection.getTextToSpeechProxy().say("MOVE")
+                            naoConnection.getMotionProxy().setPosition(command[1], FRAME_TORSO, handPosition, .5, POSITION_ONLY)
             if command[0] == "SAY":
                 if len(command) == 2:
                     print command[0] + ":", command[1]
@@ -129,6 +130,7 @@ def sendUpdates(unityConnection, naoConnection):
     imageProxy = naoConnection.getVideoDeviceProxy()
     image = imageProxy.getImageRemote(naoConnection.handle)
     unityConnection.send("IMG|" + image[6])
+    print len(image[6])
     imageProxy.releaseImage(naoConnection.handle)
     
 
@@ -168,8 +170,7 @@ while 1:
             break
     
     # Send commands to Unity
-    # sendUpdates(unityConnection, naoConnection)
-    # break
+    sendUpdates(unityConnection, naoConnection)
 
     # wait one second between calls to recv to not overflow NAO robot
     # time.sleep(1)
