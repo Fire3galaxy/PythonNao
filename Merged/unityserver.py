@@ -8,14 +8,25 @@ import time
 class PythonToNao:
     IP = "192.168.137.18"
     PORT = 9559
+    FRAME_TORSO = 0
+    USE_SENSOR = False
+    ARM_LENGTH = .21
 
     def __init__(self):
-        self.tts = ALProxy("ALTextToSpeech", PythonToNao.IP, PythonToNao.PORT)
+        # Wake up Nao motors
         self.motion = ALProxy("ALMotion", PythonToNao.IP, PythonToNao.PORT)
-        self.motion.setStiffnesses(["LArm", "RArm", "Head"], [0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0,   0, 0]) # 6 for each arm, 2 for head
+        self.motion.wakeUp()
+        
+        # Set Nao to start pose and get initial positions
+        posture = ALProxy("ALRobotPosture", PythonToNao.IP, PythonToNao.PORT)
+        posture.goToPosture("Stand", .5)
+        self.LArmInit = self.motion.getPosition("LArm", PythonToNao.FRAME_TORSO, PythonToNao.USE_SENSOR)
+        self.RArmInit = self.motion.getPosition("RArm", PythonToNao.FRAME_TORSO, PythonToNao.USE_SENSOR)
+
+        # Speech and Camera
+        self.tts = ALProxy("ALTextToSpeech", PythonToNao.IP, PythonToNao.PORT)
         self.camera = ALProxy("ALVideoDevice", PythonToNao.IP, PythonToNao.PORT)
-        self.handle = self.camera.subscribeCamera("MyModule", 2, 
-            vision_definitions.kVGA, vision_definitions.kRGBColorSpace, 30)
+        self.handle = self.camera.subscribeCamera("MyModule", 2, vision_definitions.kVGA, vision_definitions.kRGBColorSpace, 30)
 
     def getMotionProxy(self):
         return self.motion
@@ -27,7 +38,7 @@ class PythonToNao:
         return self.camera
     
     def close(self):
-        self.motion.setStiffnesses(["LArm", "RArm", "Head"], [0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0,   0, 0]) # 6 for each arm, 2 for head
+        self.motion.rest()
         self.camera.unsubscribe(self.handle)
 
 # Python to Unity socket
@@ -83,40 +94,25 @@ def processCommands(commands, naoConnection):
 
                         # Moving arms: sent position vector is from user shoulder to user hand.
                         if command[1].find("Arm") != -1:
-                            # Nao shoulder position
-                            shoulderPosition = []
-                            if command[1][0] == 'L':
-                                shoulderPosition = naoConnection.getMotionProxy().getPosition("LShoulderPitch", FRAME_TORSO, False)
-                            else:
-                                shoulderPosition = naoConnection.getMotionProxy().getPosition("RShoulderPitch", FRAME_TORSO, False)
-
                             # Get position array
                             handPosition = command[2][1:-1].replace(" ", "")
                             handPosition = handPosition.split(",") 
 
-                            # turn into float array and convert to NAO coordinates
                             if command[1] == "LArm":
                                 print handPosition
-                            handPosition = [shoulderPosition[0] + float(handPosition[2]), 
-                                    shoulderPosition[1] + float(handPosition[0]), 
-                                    shoulderPosition[2] + float(handPosition[1])]
+
+                            # turn into float array and convert to NAO coordinates
+                            handPosition = [naoConnection.LArmInit[0] + float(handPosition[2]) * PythonToNao.ARM_LENGTH,    # z = x
+                                    naoConnection.LArmInit[1] + -float(handPosition[0]) * PythonToNao.ARM_LENGTH,           #-x = y
+                                    naoConnection.LArmInit[2] + float(handPosition[1]) * PythonToNao.ARM_LENGTH]            # y = z
 
                             # Plus wx, wy, wz (rotation)
                             handPosition = handPosition + [0.0, 0.0, 0.0]
 
                             # Debug: Only left arm
                             if command[1] == "LArm":
-                                currHandPosition = naoConnection.getMotionProxy().getPosition(command[1], FRAME_TORSO, False)
-                                print "Curr hand position:", currHandPosition
-                                print "Curr shoulder position:", shoulderPosition
-
                                 naoConnection.getTextToSpeechProxy().say("MOVE")
-                                print "New arm position:", handPosition, '\n'
-                                # print command[0], command[1], "to", position
-                                # naoConnection.getMotionProxy().setPosition(command[1], FRAME_TORSO, handPosition, .2, POSITION_ONLY)
-                            
-                                # pause after move command
-                                time.sleep(2)
+                                naoConnection.getMotionProxy().setPosition(command[1], FRAME_TORSO, handPosition, .5, POSITION_ONLY)
             if command[0] == "SAY":
                 if len(command) == 2:
                     print command[0] + ":", command[1]
@@ -146,17 +142,16 @@ def convertNaoPosToStr(LArmPos):
 
 # ----------------MAIN CODE--------------------
 
-# Communicate with Unity
-print "Starting unity connection"
-unityConnection = PythonToUnity()
-unityConnection.connect()
-
 # Communicate with Nao
 print "Starting nao connection"
 naoConnection = PythonToNao()
 processCommands("SAY|Connected to Nao", naoConnection)
 time.sleep(1)
-#naoConnection = None
+
+# Communicate with Unity
+print "Starting unity connection"
+unityConnection = PythonToUnity()
+unityConnection.connect()
 
 # Main Loop
 while 1:
@@ -166,9 +161,6 @@ while 1:
     # null means connection was severed (according to python, doesn't seem true for now)
     # or that Unity didn't send anything (only sends about once per second)
     if newdata:
-        # break
-        # continue
-
         # Receive commands from Unity
         if processCommands(newdata, naoConnection):
             # Handle received disconnect command here
@@ -177,6 +169,7 @@ while 1:
     
     # Send commands to Unity
     # sendUpdates(unityConnection, naoConnection)
+    # break
 
     # wait one second between calls to recv to not overflow NAO robot
     # time.sleep(1)

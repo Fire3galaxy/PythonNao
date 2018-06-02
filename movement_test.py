@@ -21,4 +21,4 @@ motion = ALProxy("ALMotion", IP, PORT)
 # angles = [-1.32, 0, 0]
 # motion.setAngles(effectors, angles, .2)
 
-motion.rest()
+# motion.rest()
