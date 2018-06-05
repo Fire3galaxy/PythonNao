@@ -70,7 +70,10 @@ class PythonToUnity:
 
     def send(self, message):
         if hasattr(self, 'conn'):
-            self.conn.send(message) 
+            try:
+                self.conn.send(message) 
+            except socket.error as e:
+                print e # Do not crash script
     
     def close(self):
         if hasattr(self, 'conn'):
@@ -113,7 +116,7 @@ def processCommands(commands, naoConnection):
 
                             # Move arm
                             naoConnection.getTextToSpeechProxy().say("MOVE")
-                            naoConnection.getMotionProxy().setPosition(command[1], FRAME_TORSO, handPosition, .5, POSITION_ONLY)
+                            naoConnection.getMotionProxy().setPosition(command[1], FRAME_TORSO, handPosition, 1, POSITION_ONLY)
             if command[0] == "SAY":
                 if len(command) == 2:
                     print command[0] + ":", command[1]
@@ -127,11 +130,10 @@ def sendUpdates(unityConnection, naoConnection):
     # unityConnection.send("LARM|" + LArmPos)
 
     # Test if whole array can be sent in one packet
-    imageProxy = naoConnection.getVideoDeviceProxy()
-    image = imageProxy.getImageRemote(naoConnection.handle)
+    videoProxy = naoConnection.getVideoDeviceProxy()
+    image = videoProxy.getImageRemote(naoConnection.handle)
     unityConnection.send("IMG|" + image[6])
-    print len(image[6])
-    imageProxy.releaseImage(naoConnection.handle)
+    videoProxy.releaseImage(naoConnection.handle)
     
 
 # Takes position from ALMotionProxy.getPosition() and converts into list without spaces or square brackets
