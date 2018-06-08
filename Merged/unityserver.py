@@ -6,7 +6,7 @@ import time
 
 # Python to NAO Robot socket
 class PythonToNao:
-    IP = "192.168.137.18"
+    IP = "192.168.137.94"
     PORT = 9559
     FRAME_TORSO = 0
     USE_SENSOR = False
@@ -129,10 +129,11 @@ def sendUpdates(unityConnection, naoConnection):
     # LArmPos = convertNaoPosToStr(naoConnection.getMotionProxy().getPosition("LArm", 0, False))
     # unityConnection.send("LARM|" + LArmPos)
 
-    # Test if whole array can be sent in one packet
+    # Send image to Unity (in at least 2 packets, but can be more since image is large)
     videoProxy = naoConnection.getVideoDeviceProxy()
     image = videoProxy.getImageRemote(naoConnection.handle)
-    unityConnection.send("IMG|" + image[6])
+    unityConnection.send("IMG|")
+    unityConnection.send(image[6])
     videoProxy.releaseImage(naoConnection.handle)
     
 
@@ -173,9 +174,6 @@ while 1:
     
     # Send commands to Unity
     sendUpdates(unityConnection, naoConnection)
-
-    # wait one second between calls to recv to not overflow NAO robot
-    # time.sleep(1)
 
 # Exit
 print "Closing connection"
