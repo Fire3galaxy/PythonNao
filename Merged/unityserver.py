@@ -9,6 +9,9 @@ class PythonToNao:
     IP = "192.168.137.94"
     PORT = 9559
     FRAME_TORSO = 0
+    POSITION_ONLY = 7
+    ROTATION_ONLY = 56
+    MAX_SPEED_FRACTION = 1
     USE_SENSOR = False
     ARM_LENGTH = .21
 
@@ -26,7 +29,11 @@ class PythonToNao:
         # Speech and Camera
         self.tts = ALProxy("ALTextToSpeech", PythonToNao.IP, PythonToNao.PORT)
         self.camera = ALProxy("ALVideoDevice", PythonToNao.IP, PythonToNao.PORT)
-        self.handle = self.camera.subscribeCamera("MyModule", 2, vision_definitions.kVGA, vision_definitions.kRGBColorSpace, 30)
+        try:
+            self.handle = self.camera.subscribeCamera("MyModule", 2, vision_definitions.kVGA, vision_definitions.kRGBColorSpace, 30)
+        except RuntimeError:
+            self.camera.unsubscribe("MyModule")
+            self.handle = self.camera.subscribeCamera("MyModule", 2, vision_definitions.kVGA, vision_definitions.kRGBColorSpace, 30)
 
     def getMotionProxy(self):
         return self.motion
@@ -77,13 +84,11 @@ class PythonToUnity:
     
     def close(self):
         if hasattr(self, 'conn'):
+            self.conn.shutdown(socket.SHUT_RDWR)
             self.conn.close() 
 
 # Returns true if DISCONNECT, false otherwise
 def processCommands(commands, naoConnection):
-    FRAME_TORSO = 0
-    POSITION_ONLY = 7
-
     # parse all commands from received string (newline separated)
     parsedCommands = commands.splitlines()
     for command in parsedCommands:
@@ -116,7 +121,24 @@ def processCommands(commands, naoConnection):
 
                             # Move arm
                             naoConnection.getTextToSpeechProxy().say("MOVE")
-                            naoConnection.getMotionProxy().setPosition(command[1], FRAME_TORSO, handPosition, 1, POSITION_ONLY)
+                            naoConnection.getMotionProxy().setPosition(command[1], PythonToNao.FRAME_TORSO, handPosition, 
+                                PythonToNao.MAX_SPEED_FRACTION, PythonToNao.POSITION_ONLY)
+                        elif command[1] == "HeadPitch":
+                            pitchRotation = float(command[2]) # Unity swaps up and down
+                            if pitchRotation > .5149:
+                                pitchRotation = .5149
+                            elif pitchRotation < -.6720:
+                                pitchRotation = -.6720
+
+                            naoConnection.getMotionProxy().setAngles([command[1]], [pitchRotation], PythonToNao.MAX_SPEED_FRACTION)
+                        elif command[1] == "HeadYaw":
+                            yawRotation = float(command[2])
+                            if yawRotation > 2.0857:
+                                yawRotation = 2.0857
+                            elif yawRotation < -2.0857:
+                                yawRotation = -2.0857
+
+                            naoConnection.getMotionProxy().setAngles([command[1]], [yawRotation], PythonToNao.MAX_SPEED_FRACTION)
             if command[0] == "SAY":
                 if len(command) == 2:
                     print command[0] + ":", command[1]
@@ -147,35 +169,40 @@ def convertNaoPosToStr(LArmPos):
 
 # ----------------MAIN CODE--------------------
 
-# Communicate with Nao
-print "Starting nao connection"
-naoConnection = PythonToNao()
-processCommands("SAY|Connected to Nao", naoConnection)
-time.sleep(1)
-
-# Communicate with Unity
-print "Starting unity connection"
-unityConnection = PythonToUnity()
-unityConnection.connect()
-
-# Main Loop
+DEBUG = True
 while 1:
-    # Receive data from unity
-    newdata = unityConnection.recv(1024)
+    # Communicate with Nao
+    print "Starting nao connection"
+    naoConnection = PythonToNao()
+    processCommands("SAY|Connected to Nao", naoConnection)
+    time.sleep(1)
 
-    # null means connection was severed (according to python, doesn't seem true for now)
-    # or that Unity didn't send anything (only sends about once per second)
-    if newdata:
-        # Receive commands from Unity
-        if processCommands(newdata, naoConnection):
-            # Handle received disconnect command here
-            print "Received Disconnect"
-            break
-    
-    # Send commands to Unity
-    sendUpdates(unityConnection, naoConnection)
+    # Communicate with Unity
+    print "Starting unity connection"
+    unityConnection = PythonToUnity()
+    unityConnection.connect()
 
-# Exit
-print "Closing connection"
-unityConnection.close()
-naoConnection.close()
+    # Main Loop
+    while 1:
+        # Receive data from unity
+        newdata = unityConnection.recv(1024)
+
+        # null means connection was severed (according to python, doesn't seem true for now)
+        # or that Unity didn't send anything (only sends about once per second)
+        if newdata:
+            # Receive commands from Unity
+            if processCommands(newdata, naoConnection):
+                # Handle received disconnect command here
+                print "Received Disconnect"
+                break
+        
+        # Send commands to Unity
+        sendUpdates(unityConnection, naoConnection)
+
+    # Exit
+    print "Closing connection"
+    unityConnection.close()
+    naoConnection.close()
+
+    # Debug Loop: Relaunch code
+    time.sleep(9)
