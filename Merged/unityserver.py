@@ -131,7 +131,7 @@ def processCommands(commands, naoConnection):
 
                             naoConnection.getMotionProxy().setAngles([command[1]], [pitchRotation], PythonToNao.MAX_SPEED_FRACTION)
                         elif command[1] == "HeadYaw":
-                            yawRotation = float(command[2])
+                            yawRotation = -float(command[2]) # right hand vs left hand yaw rotation
                             if yawRotation > 2.0857:
                                 yawRotation = 2.0857
                             elif yawRotation < -2.0857:
